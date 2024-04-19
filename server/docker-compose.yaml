@@ -1,0 +1,93 @@
+version: '3.9'
+
+# docker network create kafka_net --driver bridge
+networks:
+  net:
+    name: kafka_net
+    external: true
+
+volumes:
+  db-data:
+    driver: local
+  redis-data:
+    driver: local
+  kafka-data:
+    driver: local
+  zookeeper-data:
+    driver: local
+  debezium-data:
+    driver: local
+
+services:
+  server:
+    build:
+      context: .
+    image: server-app-kafka:1.2
+    container_name: server-app-kafka
+    networks:
+      - net
+    depends_on:
+      - dbase
+      - kafka
+    env_file:
+      - .env
+    ports:
+      - '8082:8082'
+
+  zookeeper:
+    image: 'confluentinc/cp-zookeeper:7.6.1'
+    container_name: server-zoo-kafka
+    networks:
+      - net
+    env_file:
+      - .env
+    ports:
+      - '2181:2181'
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+
+  kafka:
+    image: 'confluentinc/cp-kafka:7.6.1'
+    container_name: server-kafka
+    networks:
+      - net
+    depends_on:
+      - zookeeper
+    env_file:
+      - .env
+    ports:
+      - '9092:9092'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  dbase:
+    image: 'postgres:15.3-alpine'
+    container_name: server-db-kafka
+    networks:
+      - net
+    env_file:
+      - .env
+    ports:
+      - '5433:5432'
+    command: ["postgres", "-c", "wal_level=logical"]
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  debezium:
+    image: debezium/connect:2.4.0.Final
+    container_name: server-debezium-kafka
+    networks:
+      - net
+    depends_on:
+      - kafka
+      - dbase
+    environment:
+      - BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
+      - GROUP_ID=${DEBEZIUM_KAFKA_BROKER_ID}
+      - CONFIG_STORAGE_TOPIC=my_connect_configs
+      - OFFSET_STORAGE_TOPIC=my_connect_offsets
+      - STATUS_STORAGE_TOPIC=my_connect_statuses
+    volumes:
+      - debezium-data:/debezium/data
+      - ./debezium-connector/:/on-startup/
+#    command: ["cd /on-startup; sh run.sh"]
